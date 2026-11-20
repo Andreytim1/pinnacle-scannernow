@@ -5,8 +5,8 @@ import re
 import requests
 
 from selenium import webdriver
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -93,20 +93,21 @@ def send(msg):
 
 options = webdriver.ChromeOptions()
 
-# Основные флаги для стабильной работы в GitHub Actions
-options.add_argument("--headless=new")
-options.add_argument("--window-size=1920,1080")
-options.add_argument("--disable-gpu")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
+# Флаги для стабильной работы в GitHub Actions
+# Подробнее: https://www.selenium.dev/documentation/guides/ci/
+options.add_argument("--headless=new")  # Новый режим без графического интерфейса[reference:2]
+options.add_argument("--no-sandbox")    # Обязательно для root-окружений (GitHub Actions)[reference:3]
+options.add_argument("--disable-dev-shm-usage") # Решает проблему с нехваткой памяти[reference:4]
+options.add_argument("--disable-gpu")   # Отключает GPU, которого нет на сервере[reference:5]
+options.add_argument("--window-size=1920,1080") # Фиксирует размер окна[reference:6]
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_argument(
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-# ВАЖНО: Используем Service() без аргументов. 
-# Selenium сам найдет ChromeDriver, установленный экшеном setup-chrome.
+# Создаём Service без аргументов. Selenium сам найдёт ChromeDriver,
+# установленный экшеном browser-actions/setup-chrome@v2.
 driver = webdriver.Chrome(
     service=Service(),
     options=options
