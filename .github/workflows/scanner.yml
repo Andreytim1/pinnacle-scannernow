@@ -2,9 +2,8 @@ name: Pinnacle Drops Telegram Scanner
 
 on:
   schedule:
-    # Запускается автоматически каждые 10 минут в облаке GitHub (даже когда ваш ПК выключен)
     - cron: '*/10 * * * *'
-  workflow_dispatch: # Позволяет запускать вручную одной кнопкой "Run workflow" во вкладке Actions
+  workflow_dispatch:
 
 jobs:
   scan-pinnacle:
@@ -21,18 +20,18 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 🌐 Установка Google Chrome (Headless)
+      - name: 🌐 Установка Google Chrome и ChromeDriver
         uses: browser-actions/setup-chrome@v2
 
-      - name: 💾 Восстановление истории отправленных сигналов (sent_keys.json)
+      - name: 💾 Восстановление и сохранение истории сигналов
         uses: actions/cache@v5
         with:
           path: sent_keys.json
-          key: pinnacle-sent-keys-v1 # Стабильный ключ! Больше не будет терять историю.
+          key: pinnacle-sent-keys-v1
           restore-keys: |
             pinnacle-sent-keys-
 
-      - name: 📦 Установка библиотек (selenium, requests, webdriver-manager)
+      - name: 📦 Установка библиотек Python
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
