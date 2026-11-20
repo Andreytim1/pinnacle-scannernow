@@ -20,9 +20,9 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
 URL = "https://scanbet.io/pinnacle/drops/football"
 
+# Порог изменения тотала (4 -> 3.5 = разница 0.5)
 THRESHOLD = 1.25
 CHECK_INTERVAL = 600
-MAX_SHOW_MORE_CLICKS = 100
 
 SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
 SENT_FILE = "sent_keys.json"
@@ -121,7 +121,7 @@ driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () =>
 
 
 # =====================================
-# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК (ОБНОВЛЕНО ПОД НОВЫЙ HTML!)
+# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК
 # =====================================
 
 def get_visible_rows():
@@ -129,12 +129,10 @@ def get_visible_rows():
     const table = document.querySelector('table.drops-table');
     if (!table) return [];
 
-    // Ищем все строки с данными
     const rows = Array.from(table.querySelectorAll('tbody tr.drops-table__row'));
     const result = [];
 
     rows.forEach(row => {
-        // В новой версии сайта время и матч находятся в той же строке, что и коэффициенты
         const timeEl = row.querySelector('.drops-table__event-time');
         const teamsEl = row.querySelector('.drops-table__event .drops-table__teams-link');
         const leagueEl = row.querySelector('.drops-table__event .drops-table__league');
@@ -144,13 +142,10 @@ def get_visible_rows():
             const compOddEl = totalCell.querySelector('.drops-table__comparison-odd');
             const currOddEl = totalCell.querySelector('.drops-table__current-odd');
 
-            // Проверяем, что коэффициенты есть и это не прочерк "-"
             if (compOddEl && currOddEl && compOddEl.innerText.trim() !== '-' && currOddEl.innerText.trim() !== '-') {
                 result.push({
                     time: timeEl.innerText.trim(),
-                    // Склеиваем команды и лигу через перенос строки
                     event: teamsEl.innerText.trim() + "\\n" + (leagueEl ? leagueEl.innerText.trim() : ""),
-                    // Склеиваем старый и новый тотал через пробел
                     total: compOddEl.innerText.trim() + " " + currOddEl.innerText.trim()
                 });
             }
@@ -172,88 +167,51 @@ def save_rows(rows):
 
 
 # =====================================
-# SHOW MORE (Кнопка "Показать еще")
+# УМНАЯ ЗАГРУЗКА ВСЕХ МАТЧЕЙ (БЕСКОНЕЧНЫЙ СКРОЛЛ)
 # =====================================
 
-def show_all_rows():
-    print("\n🔄 ЗАГРУЗКА SHOW MORE")
-    clicks = 0
+def load_all_matches():
+    print("\n🔄 ЗАГРУЗКА ВСЕХ МАТЧЕЙ (Бесконечный скролл)")
+    
+    # Ждем появления хотя бы одной строки
+    WebDriverWait(driver, 20).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr.drops-table__row"))
+    )
 
-    while True:
-        try:
-            # Ищем кнопку
-            buttons = driver.find_elements(By.CSS_SELECTOR, "button.show-more-btn")
-            if not buttons:
-                print("✅ Show More закончился или кнопка не найдена")
-                break
+    previous_count = 0
+    no_change_count = 0
 
-            button = buttons[0]
-            if not button.is_displayed() or not button.is_enabled():
-                print("⚠️ Show More недоступен")
-                break
-
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", button)
-            before = get_visible_rows()
-            save_rows(before)
-
-            driver.execute_script("arguments[0].click();", button)
-            clicks += 1
-            print(f"🖱 Show More №{clicks}")
-
-            time.sleep(2)
-
-            after = get_visible_rows()
-            save_rows(after)
-            print(f"📊 Видимых строк: {len(after)} | Всего уникальных собрано: {len(all_matches)}")
-
-            if clicks >= MAX_SHOW_MORE_CLICKS:
-                print("⚠️ Защитный лимит нажатий")
-                break
-        except Exception as e:
-            print("SHOW MORE ERROR:", e)
-            break
-
-    save_rows(get_visible_rows())
-    print("\n✅ ЗАГРУЗКА ЗАВЕРШЕНА")
-    print("🖱 Нажатий:", clicks)
-    print("📊 Собрано записей:", len(all_matches))
-
-
-# =====================================
-# ПРОКРУТКА ТАБЛИЦЫ
-# =====================================
-
-def collect_all_rows():
-    print("\n🔍 СОБИРАЕМ ВСЕ СТРОКИ")
-    try:
-        # Ждем появления контейнера, внутри которого лежит таблица
-        container = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.drops-table-wrapper"))
-        )
-    except Exception as e:
-        print("⚠️ Контейнер таблицы не найден, собираем видимые строки")
-        save_rows(get_visible_rows())
-        return
-
-    previous_count = -1
-    stable = 0
-
-    # Прокручиваем вниз, пока количество строк не перестанет расти
-    while stable < 3:
+    # Цикл работает, пока количество матчей не перестанет расти 4 раза подряд
+    while no_change_count < 4:
         save_rows(get_visible_rows())
         current_count = len(all_matches)
+        print(f"📊 Текущее количество матчей: {current_count}")
 
         if current_count == previous_count:
-            stable += 1
+            no_change_count += 1
         else:
-            stable = 0
+            no_change_count = 0 # Если матчи добавились, сбрасываем счетчик
         previous_count = current_count
 
-        driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight;", container)
-        time.sleep(1)
+        # ТРИГГЕР ЗАГРУЗКИ: Находим самую последнюю строку в таблице и скроллим к ней
+        try:
+            rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr.drops-table__row")
+            if rows:
+                last_row = rows[-1]
+                # Прокручиваем страницу так, чтобы последняя строка оказалась в центре экрана
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", last_row)
+            else:
+                # Если строк нет, скроллим всю страницу в самый низ
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        except Exception as e:
+            print("Ошибка при скролле:", e)
+            # Резервный вариант скролла
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-    save_rows(get_visible_rows())
-    print(f"✅ Собрано уникальных записей: {len(all_matches)}")
+        # Ждем, пока сайт подгрузит новые данные (3 секунды)
+        time.sleep(3)
+
+    print(f"✅ Загрузка завершена. Итоговое количество матчей: {len(all_matches)}")
 
 
 # =====================================
@@ -261,11 +219,9 @@ def collect_all_rows():
 # =====================================
 
 def parse_total(value):
-    # Извлекаем все числа (с точками или запятыми)
     numbers = re.findall(r'[-+]?\d+(?:[.,]\d+)?', value)
     if len(numbers) < 2:
         return None
-    # Возвращаем кортеж из двух чисел: (Старый тотал, Новый тотал)
     return (float(numbers[0].replace(",", ".")), float(numbers[1].replace(",", ".")))
 
 
@@ -285,7 +241,6 @@ def process_matches():
             old_t, new_t = parsed
             diff = round(abs(old_t - new_t), 2)
 
-            # Если разница меньше порога, пропускаем
             if diff < THRESHOLD:
                 continue
 
@@ -329,7 +284,6 @@ try:
 
     driver.get(URL)
     
-    # Пытаемся закрыть баннер с куки
     print("🍪 Проверка баннера с куки...")
     time.sleep(3)
     try:
@@ -343,21 +297,15 @@ try:
     except Exception as e:
         print(f"Ошибка при закрытии баннера (пропускаем): {e}")
 
-    # Ждем таблицу
     print("⏳ Ожидание появления таблицы (до 60 секунд)...")
     WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
     )
 
-    # Ждем, пока в таблице появятся строки с данными
-    WebDriverWait(driver, 20).until(
-        lambda d: len(get_visible_rows()) > 0
-    )
-
     print("✅ Таблица найдена")
 
-    show_all_rows()
-    collect_all_rows()
+    # Запускаем бесконечный скролл
+    load_all_matches()
 
     if SINGLE_RUN:
         print(f"📊 Всего матчей собрано: {len(all_matches)}")
@@ -367,16 +315,14 @@ try:
         send(
             "🚀 PINNACLE SCANNER ЗАПУЩЕН (HEADLESS)!\n\n"
             "✅ ScanBet подключен\n"
-            "✅ Show More обработан\n"
             f"📊 Собрано записей: {len(all_matches)}\n"
             f"📈 Порог: {THRESHOLD}\n"
-            f"⏱ Проверка: {CHECK_INTERVAL} сек.\n"
             "🔔 Мониторинг активен!"
         )
 
         while True:
             try:
-                collect_all_rows()
+                load_all_matches()
                 print(f"\n📊 Всего матчей в памяти: {len(all_matches)}")
                 process_matches()
             except Exception as e:
@@ -391,7 +337,6 @@ except Exception as e:
     print("❌ CRITICAL ERROR:", repr(e))
     traceback.print_exc()
     
-    # --- СБОР ДИАГНОСТИКИ ПРИ ОШИБКЕ ---
     print("\n📸 СОХРАНЕНИЕ ДИАГНОСТИКИ...")
     try:
         driver.save_screenshot("error_screenshot.png")
@@ -401,7 +346,6 @@ except Exception as e:
         print(f"📄 Заголовок страницы: {driver.title}")
     except Exception as diag_e:
         print("Не удалось сохранить диагностику:", diag_e)
-    # -----------------------------------
 
 finally:
     driver.quit()
