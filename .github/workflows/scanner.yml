@@ -51,3 +51,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SINGLE_RUN: "true"
         run: python scraper.py
+
+      - name: 📸 Сохранение скриншота и HTML при ошибке
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-diagnostics
+          path: |
+            error_screenshot.png
+            error_page.html
+          retention-days: 2
