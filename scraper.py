@@ -9,10 +9,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 # =====================================
-# НАСТРОЙКИ (ОБЛАЧНАЯ ВЕРСИЯ + HEADLESS)
+# НАСТРОЙКИ
 # =====================================
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "6116556985:AAHme10EwOumFSKDkGFzq2WIk-86iNX4BIQ")
@@ -20,9 +19,10 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
 URL = "https://scanbet.io/pinnacle/drops/football?comparison=open&sort=asc"
 
-# ВНИМАНИЕ: Если тотал меняется с 4 на 3.5, разница (diff) равна 0.5. 
-# Если THRESHOLD = 1.25, этот сигнал НЕ отправится. Поставьте 0.5, если хотите ловить такие движения.
-THRESHOLD = 1.25 
+# Порог изменения тотала. 
+# Если тотал меняется с 4 на 3.5, разница (diff) равна 0.5.
+# Если THRESHOLD = 1.25, этот сигнал НЕ отправится.
+THRESHOLD = 1.25
 CHECK_INTERVAL = 600
 MAX_SHOW_MORE_CLICKS = 100
 
@@ -31,7 +31,7 @@ SENT_FILE = "sent_keys.json"
 
 
 # =====================================
-# СОХРАНЕНИЕ ИСТОРИИ СИГНАЛОВ МЕЖДУ ЗАПУСКАМИ
+# СОХРАНЕНИЕ ИСТОРИИ СИГНАЛОВ
 # =====================================
 
 def load_sent_keys():
@@ -88,11 +88,12 @@ def send(msg):
 
 
 # =====================================
-# CHROME (БЕЗ ОКНА БРАУЗЕРА — HEADLESS РЕЖИМ)
+# CHROME (HEADLESS РЕЖИМ)
 # =====================================
 
 options = webdriver.ChromeOptions()
 
+# Основные флаги для стабильной работы в GitHub Actions
 options.add_argument("--headless=new")
 options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-gpu")
@@ -104,14 +105,16 @@ options.add_argument(
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+# ВАЖНО: Используем Service() без аргументов. 
+# Selenium сам найдет ChromeDriver, установленный экшеном setup-chrome.
 driver = webdriver.Chrome(
-    service=Service(ChromeDriverManager().install()),
+    service=Service(),
     options=options
 )
 
 
 # =====================================
-# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК (ИСПРАВЛЕНО ПОД ВАШУ HTML СТРУКТУРУ)
+# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК
 # =====================================
 
 def get_visible_rows():
@@ -124,7 +127,6 @@ def get_visible_rows():
     let currentEvent = null;
 
     rows.forEach(row => {
-        // 1. Ищем строку с названием матча, временем и лигой
         if (row.classList.contains('drops-table__event-header-row')) {
             const timeEl = row.querySelector('.drops-table__header-event-time');
             const teamsEl = row.querySelector('.drops-table__header-teams-link');
@@ -137,7 +139,6 @@ def get_visible_rows():
                 };
             }
         }
-        // 2. Ищем следующую за ней строку с коэффициентами (тоталами)
         else if (row.classList.contains('drops-table__row')) {
             const totalCell = row.querySelector('td.mat-column-T');
             
@@ -165,13 +166,9 @@ def get_visible_rows():
 # =====================================
 
 def save_rows(rows):
-    added = 0
     for row in rows:
         key = row["time"] + "|" + row["event"]
-        if key not in all_matches:
-            added += 1
         all_matches[key] = row
-    return added
 
 
 # =====================================
@@ -194,11 +191,7 @@ def show_all_rows():
                 print("⚠️ Show More недоступен")
                 break
 
-            driver.execute_script(
-                "arguments[0].scrollIntoView({block:'center'});",
-                button
-            )
-
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", button)
             before = get_visible_rows()
             save_rows(before)
 
@@ -210,16 +203,11 @@ def show_all_rows():
 
             after = get_visible_rows()
             save_rows(after)
-
-            print(
-                f"📊 Видимых строк: {len(after)} | "
-                f"Всего уникальных собрано: {len(all_matches)}"
-            )
+            print(f"📊 Видимых строк: {len(after)} | Всего уникальных собрано: {len(all_matches)}")
 
             if clicks >= MAX_SHOW_MORE_CLICKS:
                 print("⚠️ Защитный лимит нажатий")
                 break
-
         except Exception as e:
             print("SHOW MORE ERROR:", e)
             break
@@ -231,12 +219,11 @@ def show_all_rows():
 
 
 # =====================================
-# ПРОКРУТКА ТАБЛИЦЫ (ИСПРАВЛЕНО)
+# ПРОКРУТКА ТАБЛИЦЫ
 # =====================================
 
 def collect_all_rows():
     print("\n🔍 СОБИРАЕМ ВСЕ СТРОКИ")
-    
     try:
         container = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.drops-table-wrapper"))
@@ -259,10 +246,7 @@ def collect_all_rows():
             stable = 0
         previous_count = current_count
 
-        driver.execute_script(
-            "arguments[0].scrollTop = arguments[0].scrollHeight;", 
-            container
-        )
+        driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight;", container)
         time.sleep(1)
 
     save_rows(get_visible_rows())
@@ -277,11 +261,7 @@ def parse_total(value):
     numbers = re.findall(r'[-+]?\d+(?:[.,]\d+)?', value)
     if len(numbers) < 2:
         return None
-
-    return (
-        float(numbers[0].replace(",", ".")),
-        float(numbers[1].replace(",", "."))
-    )
+    return (float(numbers[0].replace(",", ".")), float(numbers[1].replace(",", ".")))
 
 
 # =====================================
@@ -303,28 +283,17 @@ def process_matches():
             if diff < THRESHOLD:
                 continue
 
-            event_lines = [
-                x.strip()
-                for x in row["event"].splitlines()
-                if x.strip()
-            ]
-
+            event_lines = [x.strip() for x in row["event"].splitlines() if x.strip()]
             match = event_lines[0] if event_lines else "Unknown"
             league = event_lines[1] if len(event_lines) > 1 else ""
 
-            key = (
-                row["time"] + "|" +
-                match + "|" +
-                str(old_t) + "|" +
-                str(new_t)
-            )
-
+            key = f"{row['time']}|{match}|{old_t}|{new_t}"
             if key in sent:
                 continue
 
             msg = (
                 "🚨 PINNACLE TOTAL MOVE\n\n"
-                f'🕒 {row["time"]}\n'
+                f"🕒 {row['time']}\n"
                 f"🏆 {league}\n"
                 f"⚽ {match}\n"
                 f"📊 T: {old_t} → {new_t}\n"
