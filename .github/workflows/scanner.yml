@@ -13,22 +13,24 @@ jobs:
 
     steps:
       - name: 📥 Скачивание кода репозитория
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 🐍 Установка Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: 🌐 Установка Google Chrome (Headless)
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
 
-      - name: 💾 Восстановление и сохранение истории сигналов (sent_keys.json)
-        uses: actions/cache@v4
+      - name: 💾 Восстановление истории отправленных сигналов (sent_keys.json)
+        uses: actions/cache@v5
         with:
           path: sent_keys.json
-          key: pinnacle-sent-keys-v1 # Стабильный ключ, не зависящий от run_id
+          key: pinnacle-sent-keys-v1 # Стабильный ключ! Больше не будет терять историю.
+          restore-keys: |
+            pinnacle-sent-keys-
 
       - name: 📦 Установка библиотек (selenium, requests, webdriver-manager)
         run: |
