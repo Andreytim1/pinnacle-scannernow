@@ -3,7 +3,7 @@ import json
 import time
 import re
 import requests
-import traceback # ДОБАВЛЕНО ДЛЯ ОТЛАДКИ
+import traceback
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -108,7 +108,7 @@ options.add_argument(
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-# Скрываем признаки автоматизации (может помочь обойти защиту сайта)
+# Скрываем признаки автоматизации
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
@@ -120,7 +120,7 @@ else:
 
 driver = webdriver.Chrome(service=service, options=options)
 
-# Убираем флаг webdriver из навигатора
+# Убираем флаг webdriver
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
 
@@ -334,6 +334,7 @@ try:
 
     driver.get(URL)
 
+    # Ждем появления таблицы (40 секунд)
     WebDriverWait(driver, 40).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
     )
@@ -377,7 +378,19 @@ except KeyboardInterrupt:
 
 except Exception as e:
     print("❌ CRITICAL ERROR:", repr(e))
-    traceback.print_exc() # ЭТА СТРОКА ВЫВЕДЕТ ПОДРОБНУЮ ОШИБКУ
+    traceback.print_exc()
+    
+    # --- СБОР ДИАГНОСТИКИ ПРИ ОШИБКЕ ---
+    print("\n📸 СОХРАНЕНИЕ ДИАГНОСТИКИ...")
+    try:
+        driver.save_screenshot("error_screenshot.png")
+        with open("error_page.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        print(f"🌐 Текущий URL: {driver.current_url}")
+        print(f"📄 Заголовок страницы: {driver.title}")
+    except Exception as diag_e:
+        print("Не удалось сохранить диагностику:", diag_e)
+    # -----------------------------------
 
 finally:
     driver.quit()
