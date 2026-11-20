@@ -10,6 +10,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # =====================================
 # НАСТРОЙКИ
@@ -18,7 +19,8 @@ from selenium.webdriver.support import expected_conditions as EC
 TOKEN = os.getenv("TELEGRAM_TOKEN", "6116556985:AAHme10EwOumFSKDkGFzq2WIk-86iNX4BIQ")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
-URL = "https://scanbet.io/pinnacle/drops/football?comparison=open&sort=asc"
+# Убрали параметры из URL, так как сайт их все равно срезает
+URL = "https://scanbet.io/pinnacle/drops/football"
 
 THRESHOLD = 1.25
 CHECK_INTERVAL = 600
@@ -107,8 +109,6 @@ options.add_argument(
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-
-# Скрываем признаки автоматизации
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
@@ -119,8 +119,6 @@ else:
     service = Service()
 
 driver = webdriver.Chrome(service=service, options=options)
-
-# Убираем флаг webdriver
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
 
@@ -333,13 +331,29 @@ try:
     print("🌐 Opening site...")
 
     driver.get(URL)
+    
+    # Пытаемся закрыть баннер с куки (если он есть)
+    print("🍪 Проверка баннера с куки...")
+    time.sleep(3) # Даем время баннеру прогрузиться
+    try:
+        # Ищем кнопки с типичными текстами согласия
+        buttons = driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'принять') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'соглас')]")
+        if buttons:
+            driver.execute_script("arguments[0].click();", buttons[0])
+            print("✅ Баннер куки закрыт.")
+            time.sleep(2)
+        else:
+            print("Баннер не найден, продолжаем.")
+    except Exception as e:
+        print(f"Ошибка при закрытии баннера (пропускаем): {e}")
 
-    # Ждем появления таблицы (40 секунд)
-    WebDriverWait(driver, 40).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
+    # Увеличили время ожидания до 60 секунд
+    print("⏳ Ожидание появления таблицы (до 60 секунд)...")
+    WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
     )
 
-    WebDriverWait(driver, 40).until(
+    WebDriverWait(driver, 20).until(
         lambda d: len(get_visible_rows()) > 0
     )
 
