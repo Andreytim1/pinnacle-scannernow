@@ -19,9 +19,6 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
 URL = "https://scanbet.io/pinnacle/drops/football?comparison=open&sort=asc"
 
-# Порог изменения тотала. 
-# Если тотал меняется с 4 на 3.5, разница (diff) равна 0.5.
-# Если THRESHOLD = 1.25, этот сигнал НЕ отправится.
 THRESHOLD = 1.25
 CHECK_INTERVAL = 600
 MAX_SHOW_MORE_CLICKS = 100
@@ -91,27 +88,35 @@ def send(msg):
 # CHROME (HEADLESS РЕЖИМ)
 # =====================================
 
+chrome_path = os.getenv("CHROME_PATH")
+driver_path = os.getenv("CHROMEDRIVER_PATH")
+
 options = webdriver.ChromeOptions()
 
-# Флаги для стабильной работы в GitHub Actions
-# Подробнее: https://www.selenium.dev/documentation/guides/ci/
-options.add_argument("--headless=new")  # Новый режим без графического интерфейса[reference:2]
-options.add_argument("--no-sandbox")    # Обязательно для root-окружений (GitHub Actions)[reference:3]
-options.add_argument("--disable-dev-shm-usage") # Решает проблему с нехваткой памяти[reference:4]
-options.add_argument("--disable-gpu")   # Отключает GPU, которого нет на сервере[reference:5]
-options.add_argument("--window-size=1920,1080") # Фиксирует размер окна[reference:6]
+# Явно указываем путь к бинарнику Chrome, если он передан
+if chrome_path:
+    options.binary_location = chrome_path
+
+# Обязательные параметры для стабильного запуска в CI
+options.add_argument("--headless=new")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--disable-gpu")
+options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_argument("--disable-setuid-sandbox") # Дополнительный флаг для root-окружений
 options.add_argument(
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-# Создаём Service без аргументов. Selenium сам найдёт ChromeDriver,
-# установленный экшеном browser-actions/setup-chrome@v2.
-driver = webdriver.Chrome(
-    service=Service(),
-    options=options
-)
+# Создаём Service с явным путём к драйверу, если он известен
+if driver_path:
+    service = Service(executable_path=driver_path)
+else:
+    service = Service()
+
+driver = webdriver.Chrome(service=service, options=options)
 
 
 # =====================================
