@@ -22,6 +22,8 @@ jobs:
 
       - name: 🌐 Установка Google Chrome и ChromeDriver
         uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: 'stable'
 
       - name: 💾 Восстановление и сохранение истории сигналов
         uses: actions/cache@v5
