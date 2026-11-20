@@ -89,6 +89,7 @@ def send(msg):
 # =====================================
 
 chrome_path = os.getenv("CHROME_PATH")
+driver_path = os.getenv("CHROMEDRIVER_PATH")
 
 options = webdriver.ChromeOptions()
 
@@ -107,7 +108,13 @@ options.add_argument(
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-driver = webdriver.Chrome(service=Service(), options=options)
+# Явно передаем путь к ChromeDriver, если он известен
+if driver_path:
+    service = Service(executable_path=driver_path)
+else:
+    service = Service()
+
+driver = webdriver.Chrome(service=service, options=options)
 
 
 # =====================================
