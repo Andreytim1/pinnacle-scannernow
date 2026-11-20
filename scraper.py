@@ -10,7 +10,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # =====================================
 # НАСТРОЙКИ
@@ -19,7 +18,6 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 TOKEN = os.getenv("TELEGRAM_TOKEN", "6116556985:AAHme10EwOumFSKDkGFzq2WIk-86iNX4BIQ")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
-# Убрали параметры из URL, так как сайт их все равно срезает
 URL = "https://scanbet.io/pinnacle/drops/football"
 
 THRESHOLD = 1.25
@@ -123,7 +121,7 @@ driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () =>
 
 
 # =====================================
-# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК
+# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК (ОБНОВЛЕНО ПОД НОВЫЙ HTML!)
 # =====================================
 
 def get_visible_rows():
@@ -131,37 +129,30 @@ def get_visible_rows():
     const table = document.querySelector('table.drops-table');
     if (!table) return [];
 
-    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    // Ищем все строки с данными
+    const rows = Array.from(table.querySelectorAll('tbody tr.drops-table__row'));
     const result = [];
-    let currentEvent = null;
 
     rows.forEach(row => {
-        if (row.classList.contains('drops-table__event-header-row')) {
-            const timeEl = row.querySelector('.drops-table__header-event-time');
-            const teamsEl = row.querySelector('.drops-table__header-teams-link');
-            const leagueEl = row.querySelector('.drops-table__event-header-second-row');
+        // В новой версии сайта время и матч находятся в той же строке, что и коэффициенты
+        const timeEl = row.querySelector('.drops-table__event-time');
+        const teamsEl = row.querySelector('.drops-table__event .drops-table__teams-link');
+        const leagueEl = row.querySelector('.drops-table__event .drops-table__league');
+        const totalCell = row.querySelector('td.mat-column-T');
 
-            if (timeEl && teamsEl) {
-                currentEvent = {
+        if (timeEl && teamsEl && totalCell) {
+            const compOddEl = totalCell.querySelector('.drops-table__comparison-odd');
+            const currOddEl = totalCell.querySelector('.drops-table__current-odd');
+
+            // Проверяем, что коэффициенты есть и это не прочерк "-"
+            if (compOddEl && currOddEl && compOddEl.innerText.trim() !== '-' && currOddEl.innerText.trim() !== '-') {
+                result.push({
                     time: timeEl.innerText.trim(),
-                    event: teamsEl.innerText.trim() + "\\n" + (leagueEl ? leagueEl.innerText.replace(/\\s+/g, ' ').trim() : "")
-                };
-            }
-        }
-        else if (row.classList.contains('drops-table__row')) {
-            const totalCell = row.querySelector('td.mat-column-T');
-            
-            if (totalCell && currentEvent) {
-                const compOdd = totalCell.querySelector('.drops-table__comparison-odd');
-                const currOdd = totalCell.querySelector('.drops-table__current-odd');
-
-                if (compOdd && currOdd) {
-                    result.push({
-                        time: currentEvent.time,
-                        event: currentEvent.event,
-                        total: compOdd.innerText.trim() + " " + currOdd.innerText.trim()
-                    });
-                }
+                    // Склеиваем команды и лигу через перенос строки
+                    event: teamsEl.innerText.trim() + "\\n" + (leagueEl ? leagueEl.innerText.trim() : ""),
+                    // Склеиваем старый и новый тотал через пробел
+                    total: compOddEl.innerText.trim() + " " + currOddEl.innerText.trim()
+                });
             }
         }
     });
@@ -181,7 +172,7 @@ def save_rows(rows):
 
 
 # =====================================
-# SHOW MORE
+# SHOW MORE (Кнопка "Показать еще")
 # =====================================
 
 def show_all_rows():
@@ -190,9 +181,10 @@ def show_all_rows():
 
     while True:
         try:
+            # Ищем кнопку
             buttons = driver.find_elements(By.CSS_SELECTOR, "button.show-more-btn")
             if not buttons:
-                print("✅ Show More закончился")
+                print("✅ Show More закончился или кнопка не найдена")
                 break
 
             button = buttons[0]
@@ -234,6 +226,7 @@ def show_all_rows():
 def collect_all_rows():
     print("\n🔍 СОБИРАЕМ ВСЕ СТРОКИ")
     try:
+        # Ждем появления контейнера, внутри которого лежит таблица
         container = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.drops-table-wrapper"))
         )
@@ -245,6 +238,7 @@ def collect_all_rows():
     previous_count = -1
     stable = 0
 
+    # Прокручиваем вниз, пока количество строк не перестанет расти
     while stable < 3:
         save_rows(get_visible_rows())
         current_count = len(all_matches)
@@ -267,9 +261,11 @@ def collect_all_rows():
 # =====================================
 
 def parse_total(value):
+    # Извлекаем все числа (с точками или запятыми)
     numbers = re.findall(r'[-+]?\d+(?:[.,]\d+)?', value)
     if len(numbers) < 2:
         return None
+    # Возвращаем кортеж из двух чисел: (Старый тотал, Новый тотал)
     return (float(numbers[0].replace(",", ".")), float(numbers[1].replace(",", ".")))
 
 
@@ -289,6 +285,7 @@ def process_matches():
             old_t, new_t = parsed
             diff = round(abs(old_t - new_t), 2)
 
+            # Если разница меньше порога, пропускаем
             if diff < THRESHOLD:
                 continue
 
@@ -332,11 +329,10 @@ try:
 
     driver.get(URL)
     
-    # Пытаемся закрыть баннер с куки (если он есть)
+    # Пытаемся закрыть баннер с куки
     print("🍪 Проверка баннера с куки...")
-    time.sleep(3) # Даем время баннеру прогрузиться
+    time.sleep(3)
     try:
-        # Ищем кнопки с типичными текстами согласия
         buttons = driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'принять') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'соглас')]")
         if buttons:
             driver.execute_script("arguments[0].click();", buttons[0])
@@ -347,12 +343,13 @@ try:
     except Exception as e:
         print(f"Ошибка при закрытии баннера (пропускаем): {e}")
 
-    # Увеличили время ожидания до 60 секунд
+    # Ждем таблицу
     print("⏳ Ожидание появления таблицы (до 60 секунд)...")
     WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
     )
 
+    # Ждем, пока в таблице появятся строки с данными
     WebDriverWait(driver, 20).until(
         lambda d: len(get_visible_rows()) > 0
     )
