@@ -24,13 +24,11 @@ jobs:
       - name: 🌐 Установка Google Chrome (Headless)
         uses: browser-actions/setup-chrome@v1
 
-      - name: 💾 Восстановление истории отправленных сигналов (sent_keys.json)
+      - name: 💾 Восстановление и сохранение истории сигналов (sent_keys.json)
         uses: actions/cache@v4
         with:
           path: sent_keys.json
-          key: pinnacle-sent-keys-${{ github.run_id }}
-          restore-keys: |
-            pinnacle-sent-keys-
+          key: pinnacle-sent-keys-v1 # Стабильный ключ, не зависящий от run_id
 
       - name: 📦 Установка библиотек (selenium, requests, webdriver-manager)
         run: |
