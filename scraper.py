@@ -3,6 +3,7 @@ import json
 import time
 import re
 import requests
+import traceback # ДОБАВЛЕНО ДЛЯ ОТЛАДКИ
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -101,20 +102,26 @@ options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--disable-gpu")
 options.add_argument("--window-size=1920,1080")
-options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_argument("--disable-setuid-sandbox")
 options.add_argument(
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
-# Явно передаем путь к ChromeDriver, если он известен
+# Скрываем признаки автоматизации (может помочь обойти защиту сайта)
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_experimental_option("excludeSwitches", ["enable-automation"])
+options.add_experimental_option('useAutomationExtension', False)
+
 if driver_path:
     service = Service(executable_path=driver_path)
 else:
     service = Service()
 
 driver = webdriver.Chrome(service=service, options=options)
+
+# Убираем флаг webdriver из навигатора
+driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
 
 # =====================================
@@ -369,7 +376,8 @@ except KeyboardInterrupt:
     print("\n🛑 Сканер остановлен")
 
 except Exception as e:
-    print("❌ CRITICAL ERROR:", e)
+    print("❌ CRITICAL ERROR:", repr(e))
+    traceback.print_exc() # ЭТА СТРОКА ВЫВЕДЕТ ПОДРОБНУЮ ОШИБКУ
 
 finally:
     driver.quit()
