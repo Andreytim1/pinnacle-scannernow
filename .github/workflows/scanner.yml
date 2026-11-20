@@ -7,7 +7,7 @@ on:
 
 jobs:
   scan-pinnacle:
-    runs-on: ubuntu-22.04 # Используем стабильную версию Ubuntu
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
 
     steps:
@@ -25,13 +25,6 @@ jobs:
         with:
           chrome-version: 'stable'
         id: setup-chrome
-
-      - name: 📋 Вывод версий Chrome и ChromeDriver
-        run: |
-          echo "Chrome path: ${{ steps.setup-chrome.outputs.chrome-path }}"
-          echo "ChromeDriver path: ${{ steps.setup-chrome.outputs.chromedriver-path }}"
-          ${{ steps.setup-chrome.outputs.chrome-path }} --version
-          ${{ steps.setup-chrome.outputs.chromedriver-path }} --version
 
       - name: 📤 Экспорт путей в переменные окружения
         run: |
