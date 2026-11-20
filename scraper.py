@@ -20,13 +20,12 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
 URL = "https://scanbet.io/pinnacle/drops/football?comparison=open&sort=asc"
 
-THRESHOLD = 1.25
+# ВНИМАНИЕ: Если тотал меняется с 4 на 3.5, разница (diff) равна 0.5. 
+# Если THRESHOLD = 1.25, этот сигнал НЕ отправится. Поставьте 0.5, если хотите ловить такие движения.
+THRESHOLD = 1.25 
 CHECK_INTERVAL = 600
 MAX_SHOW_MORE_CLICKS = 100
 
-# В GitHub Actions / Yandex Cloud скрипт запускается по расписанию (SINGLE_RUN=true),
-# проверяет матчи за 1 проход и выключается, сохраняя историю отправленных в sent_keys.json.
-# На VPS или своем ПК можно поставить SINGLE_RUN=false для бесконечного цикла while True.
 SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
 SENT_FILE = "sent_keys.json"
 
@@ -94,7 +93,6 @@ def send(msg):
 
 options = webdriver.ChromeOptions()
 
-# Главные флаги, чтобы браузер НЕ открывал окно и работал в фоне / облаке:
 options.add_argument("--headless=new")
 options.add_argument("--window-size=1920,1080")
 options.add_argument("--disable-gpu")
@@ -113,7 +111,7 @@ driver = webdriver.Chrome(
 
 
 # =====================================
-# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК
+# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК (ИСПРАВЛЕНО ПОД ВАШУ HTML СТРУКТУРУ)
 # =====================================
 
 def get_visible_rows():
@@ -121,23 +119,43 @@ def get_visible_rows():
     const table = document.querySelector('table.drops-table');
     if (!table) return [];
 
-    return Array.from(
-        table.querySelectorAll('tbody tr[role="row"]')
-    ).map(row => {
-        const timeCell = row.querySelector('td.mat-column-eventTime');
-        const eventCell = row.querySelector('td.mat-column-eventInfo');
-        const totalCell = row.querySelector('td.mat-column-T');
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const result = [];
+    let currentEvent = null;
 
-        if (!timeCell || !eventCell || !totalCell) {
-            return null;
+    rows.forEach(row => {
+        // 1. Ищем строку с названием матча, временем и лигой
+        if (row.classList.contains('drops-table__event-header-row')) {
+            const timeEl = row.querySelector('.drops-table__header-event-time');
+            const teamsEl = row.querySelector('.drops-table__header-teams-link');
+            const leagueEl = row.querySelector('.drops-table__event-header-second-row');
+
+            if (timeEl && teamsEl) {
+                currentEvent = {
+                    time: timeEl.innerText.trim(),
+                    event: teamsEl.innerText.trim() + "\\n" + (leagueEl ? leagueEl.innerText.replace(/\\s+/g, ' ').trim() : "")
+                };
+            }
         }
+        // 2. Ищем следующую за ней строку с коэффициентами (тоталами)
+        else if (row.classList.contains('drops-table__row')) {
+            const totalCell = row.querySelector('td.mat-column-T');
+            
+            if (totalCell && currentEvent) {
+                const compOdd = totalCell.querySelector('.drops-table__comparison-odd');
+                const currOdd = totalCell.querySelector('.drops-table__current-odd');
 
-        return {
-            time: timeCell.innerText.trim(),
-            event: eventCell.innerText.trim(),
-            total: totalCell.innerText.trim()
-        };
-    }).filter(row => row !== null);
+                if (compOdd && currOdd) {
+                    result.push({
+                        time: currentEvent.time,
+                        event: currentEvent.event,
+                        total: compOdd.innerText.trim() + " " + currOdd.innerText.trim()
+                    });
+                }
+            }
+        }
+    });
+    return result;
     """
     return driver.execute_script(script)
 
@@ -213,62 +231,41 @@ def show_all_rows():
 
 
 # =====================================
-# ПРОКРУТКА ТАБЛИЦЫ
+# ПРОКРУТКА ТАБЛИЦЫ (ИСПРАВЛЕНО)
 # =====================================
 
 def collect_all_rows():
     print("\n🔍 СОБИРАЕМ ВСЕ СТРОКИ")
-
-    containers = driver.execute_script("""
-        return Array.from(document.querySelectorAll('*'))
-            .filter(el =>
-                el.scrollHeight > el.clientHeight + 50 &&
-                el.clientHeight > 100
-            )
-            .sort((a,b) =>
-                b.scrollHeight - b.clientHeight -
-                (a.scrollHeight - a.clientHeight)
-            )
-            .slice(0, 10);
-    """)
-
-    if not containers:
+    
+    try:
+        container = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.drops-table-wrapper"))
+        )
+    except Exception as e:
+        print("⚠️ Контейнер таблицы не найден, собираем видимые строки")
         save_rows(get_visible_rows())
-        print("⚠️ Отдельный контейнер прокрутки не найден")
         return
 
-    for index in range(len(containers)):
-        try:
-            save_rows(get_visible_rows())
-            driver.execute_script("arguments[0].scrollTop = 0;", containers[index])
-            time.sleep(0.5)
+    previous_count = -1
+    stable = 0
 
-            previous_count = -1
+    while stable < 3:
+        save_rows(get_visible_rows())
+        current_count = len(all_matches)
+
+        if current_count == previous_count:
+            stable += 1
+        else:
             stable = 0
+        previous_count = current_count
 
-            while stable < 3:
-                save_rows(get_visible_rows())
-                current_count = len(all_matches)
+        driver.execute_script(
+            "arguments[0].scrollTop = arguments[0].scrollHeight;", 
+            container
+        )
+        time.sleep(1)
 
-                if current_count == previous_count:
-                    stable += 1
-                else:
-                    stable = 0
-
-                previous_count = current_count
-
-                driver.execute_script("""
-                    arguments[0].scrollTop +=
-                    Math.max(200, arguments[0].clientHeight * 0.7);
-                """, containers[index])
-
-                time.sleep(0.4)
-
-            save_rows(get_visible_rows())
-
-        except Exception as e:
-            print("SCROLL ERROR:", e)
-
+    save_rows(get_visible_rows())
     print(f"✅ Собрано уникальных записей: {len(all_matches)}")
 
 
@@ -371,12 +368,10 @@ try:
     collect_all_rows()
 
     if SINGLE_RUN:
-        # Одиночный проход для бесплатного облачного запуска (GitHub Actions / Cron)
         print(f"📊 Всего матчей собрано: {len(all_matches)}")
         process_matches()
         print("✅ Одиночный облачный проход успешно завершен!")
     else:
-        # Бесконечный цикл для работы на ПК в фоне или на VPS
         send(
             "🚀 PINNACLE SCANNER ЗАПУЩЕН (HEADLESS)!\n\n"
             "✅ ScanBet подключен\n"
