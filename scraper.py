@@ -20,8 +20,9 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
 URL = "https://scanbet.io/pinnacle/drops/football"
 
-# Порог изменения тотала (4 -> 3.5 = разница 0.5)
-THRESHOLD = 1.25
+# Порог изменения тотала. Если тотал меняется с 4 на 3.5, разница равна 0.5.
+# Если хотите ловить изменения на пол-очка, поставьте 0.5
+THRESHOLD = 1.25 
 CHECK_INTERVAL = 600
 
 SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
@@ -121,7 +122,7 @@ driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () =>
 
 
 # =====================================
-# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК
+# ПОЛУЧЕНИЕ ВИДИМЫХ СТРОК (БЕЗ ФИЛЬТРА ПРОЧЕРКОВ)
 # =====================================
 
 def get_visible_rows():
@@ -142,13 +143,15 @@ def get_visible_rows():
             const compOddEl = totalCell.querySelector('.drops-table__comparison-odd');
             const currOddEl = totalCell.querySelector('.drops-table__current-odd');
 
-            if (compOddEl && currOddEl && compOddEl.innerText.trim() !== '-' && currOddEl.innerText.trim() !== '-') {
-                result.push({
-                    time: timeEl.innerText.trim(),
-                    event: teamsEl.innerText.trim() + "\\n" + (leagueEl ? leagueEl.innerText.trim() : ""),
-                    total: compOddEl.innerText.trim() + " " + currOddEl.innerText.trim()
-                });
-            }
+            // Забираем текст, даже если там прочерк (мы отфильтруем это в Python)
+            const compOddText = compOddEl ? compOddEl.innerText.trim() : "";
+            const currOddText = currOddEl ? currOddEl.innerText.trim() : "";
+
+            result.push({
+                time: timeEl.innerText.trim(),
+                event: teamsEl.innerText.trim() + "\\n" + (leagueEl ? leagueEl.innerText.trim() : ""),
+                total: compOddText + " " + currOddText
+            });
         }
     });
     return result;
@@ -167,13 +170,12 @@ def save_rows(rows):
 
 
 # =====================================
-# УМНАЯ ЗАГРУЗКА ВСЕХ МАТЧЕЙ (БЕСКОНЕЧНЫЙ СКРОЛЛ)
+# УМНАЯ ЗАГРУЗКА ВСЕХ МАТЧЕЙ
 # =====================================
 
 def load_all_matches():
     print("\n🔄 ЗАГРУЗКА ВСЕХ МАТЧЕЙ (Бесконечный скролл)")
     
-    # Ждем появления хотя бы одной строки
     WebDriverWait(driver, 20).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr.drops-table__row"))
     )
@@ -181,35 +183,36 @@ def load_all_matches():
     previous_count = 0
     no_change_count = 0
 
-    # Цикл работает, пока количество матчей не перестанет расти 4 раза подряд
-    while no_change_count < 4:
+    # Увеличили до 6, чтобы дать сайту больше времени на подгрузку
+    while no_change_count < 6:
         save_rows(get_visible_rows())
         current_count = len(all_matches)
+        
+        # Выводим первый матч для проверки (чтобы убедиться, что берем правильную колонку)
+        if previous_count == 0 and current_count > 0:
+            first_key = list(all_matches.keys())[0]
+            print(f"👀 Пример собранного матча: {all_matches[first_key]['event'].splitlines()[0]} | Тотал: {all_matches[first_key]['total']}")
+
         print(f"📊 Текущее количество матчей: {current_count}")
 
         if current_count == previous_count:
             no_change_count += 1
         else:
-            no_change_count = 0 # Если матчи добавились, сбрасываем счетчик
+            no_change_count = 0
         previous_count = current_count
 
-        # ТРИГГЕР ЗАГРУЗКИ: Находим самую последнюю строку в таблице и скроллим к ней
         try:
             rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr.drops-table__row")
             if rows:
                 last_row = rows[-1]
-                # Прокручиваем страницу так, чтобы последняя строка оказалась в центре экрана
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", last_row)
             else:
-                # Если строк нет, скроллим всю страницу в самый низ
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         except Exception as e:
-            print("Ошибка при скролле:", e)
-            # Резервный вариант скролла
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-        # Ждем, пока сайт подгрузит новые данные (3 секунды)
-        time.sleep(3)
+        # Увеличили время ожидания до 4 секунд, чтобы сайт успел отрисовать данные
+        time.sleep(4)
 
     print(f"✅ Загрузка завершена. Итоговое количество матчей: {len(all_matches)}")
 
@@ -219,6 +222,10 @@ def load_all_matches():
 # =====================================
 
 def parse_total(value):
+    # Если в строке есть прочерк, значит тотала нет
+    if '-' in value:
+        return None
+        
     numbers = re.findall(r'[-+]?\d+(?:[.,]\d+)?', value)
     if len(numbers) < 2:
         return None
