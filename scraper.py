@@ -15,14 +15,15 @@ from selenium.webdriver.support import expected_conditions as EC
 # НАСТРОЙКИ
 # =====================================
 
+# ВСТАВЬТЕ СЮДА ВАШИ ДАННЫЕ, ЕСЛИ НЕ ИСПОЛЬЗУЕТЕ СЕКРЕТЫ GITHUB
 TOKEN = os.getenv("TELEGRAM_TOKEN", "6116556985:AAHme10EwOumFSKDkGFzq2WIk-86iNX4BIQ")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
 
 URL = "https://scanbet.io/pinnacle/drops/football"
 
-# ВАЖНО: Если хотите ловить изменения на 0.5 (например, с 3 на 3.5), 
-# поставьте THRESHOLD = 0.5. Сейчас 1.25 пропустит мелкие изменения.
-THRESHOLD = 0.5
+# ВНИМАНИЕ! Если тут стоит 1.25, бот не будет отправлять изменения на 0.25 или 0.5!
+# Поставьте 0.25, чтобы ловить ВСЕ сигналы.
+THRESHOLD = 0.25 
 CHECK_INTERVAL = 600
 
 SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
@@ -56,7 +57,7 @@ all_matches = {}
 
 
 # =====================================
-# TELEGRAM
+# TELEGRAM (С ПОДРОБНЫМ ЛОГИРОВАНИЕМ)
 # =====================================
 
 session = requests.Session()
@@ -73,16 +74,19 @@ def send(msg):
             timeout=15
         )
         result = response.json()
+        
+        # Выводим полный ответ от Telegram в логи
+        print(f"📡 Ответ Telegram: {result}")
 
         if result.get("ok"):
             print("✅ Telegram отправлен!")
             return True
 
-        print("❌ Telegram error:", result)
+        print("❌ Telegram error:", result.get("description", "Неизвестная ошибка"))
         return False
 
     except Exception as e:
-        print("❌ Telegram error:", e)
+        print("❌ Ошибка сети при отправке в Telegram:", e)
         return False
 
 
@@ -169,7 +173,7 @@ def save_rows(rows):
 
 
 # =====================================
-# ЗАГРУЗКА ВСЕХ МАТЧЕЙ (ЧЕРЕЗ КНОПКУ SHOW MORE)
+# ЗАГРУЗКА ВСЕХ МАТЧЕЙ
 # =====================================
 
 def load_all_matches():
@@ -182,41 +186,32 @@ def load_all_matches():
     previous_count = 0
     no_change_count = 0
 
-    # Делаем до 6 попыток, если данные перестали грузиться
     while no_change_count < 6:
         save_rows(get_visible_rows())
         current_count = len(all_matches)
         print(f"📊 Текущее количество матчей: {current_count}")
 
-        # Если число матчей не меняется, увеличиваем счетчик
         if current_count == previous_count:
             no_change_count += 1
         else:
             no_change_count = 0
         previous_count = current_count
 
-        # ИЩЕМ ВСЕ КНОПКИ SHOW MORE (их может быть несколько)
         buttons = driver.find_elements(By.CSS_SELECTOR, "button.show-more-btn")
-        
-        # Отфильтровываем только видимые и кликабельные кнопки
         visible_buttons = [b for b in buttons if b.is_displayed() and b.is_enabled()]
 
         if visible_buttons:
             print(f"🖱 Найдено кнопок 'Show More': {len(visible_buttons)}. Нажимаем...")
             for btn in visible_buttons:
                 try:
-                    # Скроллим к кнопке
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
                     time.sleep(0.5)
-                    # Кликаем через JS, чтобы избежать перекрытия элементов
                     driver.execute_script("arguments[0].click();", btn)
                     print("✅ Нажата кнопка Show More")
-                    time.sleep(2) # Ждем, пока Angular прогрузит новые строки
+                    time.sleep(2)
                 except Exception as e:
                     print(f"⚠️ Ошибка при клике на кнопку: {e}")
         else:
-            print("⚠️ Кнопки 'Show More' закончились. Пробуем прокрутить вниз...")
-            # Если кнопок нет, делаем обычный скролл вниз
             try:
                 rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr.drops-table__row")
                 if rows:
@@ -224,7 +219,7 @@ def load_all_matches():
                 else:
                     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             except:
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                pass
             time.sleep(3)
 
     print(f"✅ Загрузка завершена. Итоговое количество матчей: {len(all_matches)}")
@@ -237,7 +232,6 @@ def load_all_matches():
 def parse_total(value):
     if '-' in value:
         return None
-        
     numbers = re.findall(r'[-+]?\d+(?:[.,]\d+)?', value)
     if len(numbers) < 2:
         return None
@@ -245,11 +239,12 @@ def parse_total(value):
 
 
 # =====================================
-# ОБРАБОТКА СИГНАЛОВ
+# ОБРАБОТКА СИГНАЛОВ (С ЛОГИРОВАНИЕМ)
 # =====================================
 
 def process_matches():
     signals = 0
+    print(f"\n🔍 НАЧАЛО ПРОВЕРКИ СИГНАЛОВ (Порог: {THRESHOLD})")
 
     for row in list(all_matches.values()):
         try:
@@ -260,6 +255,12 @@ def process_matches():
             old_t, new_t = parsed
             diff = round(abs(old_t - new_t), 2)
 
+            # Если изменение больше нуля, показываем это в логах
+            if diff > 0:
+                event_lines = [x.strip() for x in row["event"].splitlines() if x.strip()]
+                match_name = event_lines[0] if event_lines else "Unknown"
+                print(f"   ⚖️ {match_name}: {old_t} -> {new_t} (Разница: {diff})")
+
             if diff < THRESHOLD:
                 continue
 
@@ -269,6 +270,7 @@ def process_matches():
 
             key = f"{row['time']}|{match}|{old_t}|{new_t}"
             if key in sent:
+                print(f"   ⏭️ Пропуск (уже отправляли ранее): {match}")
                 continue
 
             msg = (
@@ -280,7 +282,7 @@ def process_matches():
                 f"📈 Move: {diff}"
             )
 
-            print(f"🎯 {match}: {old_t} → {new_t} ({diff})")
+            print(f"🎯 ПОПЫТКА ОТПРАВКИ: {match}: {old_t} → {new_t} ({diff})")
 
             if send(msg):
                 sent.add(key)
@@ -290,7 +292,7 @@ def process_matches():
             print("ROW ERROR:", e)
 
     save_sent_keys(sent)
-    print(f"🔔 Новых сигналов: {signals}")
+    print(f"🔔 ИТОГО Новых сигналов отправлено: {signals}")
 
 
 # =====================================
@@ -299,8 +301,13 @@ def process_matches():
 
 try:
     print("🚀 ЗАПУСК СКАНЕРА (HEADLESS РЕЖИМ)...")
+    
+    # Тест связи с Telegram
+    print("📨 Отправка тестового сообщения в Telegram...")
+    if not send("🤖 Сканер запущен. Тест связи пройден."):
+        print("⚠️ ВНИМАНИЕ: Telegram не принял тестовое сообщение! Проверьте токен и CHAT_ID.")
+    
     print("🌐 Opening site...")
-
     driver.get(URL)
     
     print("🍪 Проверка баннера с куки...")
@@ -311,10 +318,8 @@ try:
             driver.execute_script("arguments[0].click();", buttons[0])
             print("✅ Баннер куки закрыт.")
             time.sleep(2)
-        else:
-            print("Баннер не найден, продолжаем.")
-    except Exception as e:
-        print(f"Ошибка при закрытии баннера (пропускаем): {e}")
+    except Exception:
+        pass
 
     print("⏳ Ожидание появления таблицы (до 60 секунд)...")
     WebDriverWait(driver, 60).until(
@@ -330,14 +335,6 @@ try:
         process_matches()
         print("✅ Одиночный облачный проход успешно завершен!")
     else:
-        send(
-            "🚀 PINNACLE SCANNER ЗАПУЩЕН (HEADLESS)!\n\n"
-            "✅ ScanBet подключен\n"
-            f"📊 Собрано записей: {len(all_matches)}\n"
-            f"📈 Порог: {THRESHOLD}\n"
-            "🔔 Мониторинг активен!"
-        )
-
         while True:
             try:
                 load_all_matches()
@@ -345,7 +342,6 @@ try:
                 process_matches()
             except Exception as e:
                 print("❌ LOOP ERROR:", e)
-
             time.sleep(CHECK_INTERVAL)
 
 except KeyboardInterrupt:
@@ -360,10 +356,8 @@ except Exception as e:
         driver.save_screenshot("error_screenshot.png")
         with open("error_page.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
-        print(f"🌐 Текущий URL: {driver.current_url}")
-        print(f"📄 Заголовок страницы: {driver.title}")
-    except Exception as diag_e:
-        print("Не удалось сохранить диагностику:", diag_e)
+    except Exception:
+        pass
 
 finally:
     driver.quit()
