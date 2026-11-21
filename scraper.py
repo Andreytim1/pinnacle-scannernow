@@ -22,7 +22,7 @@ URL = "https://scanbet.io/pinnacle/drops/football"
 
 # ВАЖНО: Если хотите ловить изменения на 0.5 (например, с 3 на 3.5), 
 # поставьте THRESHOLD = 0.5. Сейчас 1.25 пропустит мелкие изменения.
-THRESHOLD = 1.25
+THRESHOLD = 0.5
 CHECK_INTERVAL = 600
 
 SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
