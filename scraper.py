@@ -15,15 +15,12 @@ from selenium.webdriver.support import expected_conditions as EC
 # НАСТРОЙКИ
 # =====================================
 
-# Берем токен и ID строго из секретов GitHub. 
-# Если их нет - выдаст ошибку, но не будет спамить не туда.
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 URL = "https://scanbet.io/pinnacle/drops/football"
 
-# Порог изменения тотала (0.25 ловит изменения в четверть очка)
-THRESHOLD = 0.25 
+THRESHOLD = 1.25 
 CHECK_INTERVAL = 600
 
 SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
@@ -40,7 +37,7 @@ def load_sent_keys():
             with open(SENT_FILE, "r", encoding="utf-8") as f:
                 return set(json.load(f))
         except Exception as e:
-            print("⚠️ Не удалось прочитать sent_keys.json:", e)
+            print("⚠️ Не удалось прочитать sent_keys.json:", e, flush=True)
     return set()
 
 
@@ -49,7 +46,7 @@ def save_sent_keys(sent_set):
         with open(SENT_FILE, "w", encoding="utf-8") as f:
             json.dump(list(sent_set)[-2000:], f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print("⚠️ Не удалось сохранить sent_keys.json:", e)
+        print("⚠️ Не удалось сохранить sent_keys.json:", e, flush=True)
 
 
 sent = load_sent_keys()
@@ -65,7 +62,7 @@ session = requests.Session()
 
 def send(msg):
     if not TOKEN or not CHAT_ID:
-        print("❌ ОШИБКА: TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы в секретах GitHub!")
+        print("❌ ОШИБКА: TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы в секретах GitHub!", flush=True)
         return False
         
     try:
@@ -80,14 +77,14 @@ def send(msg):
         result = response.json()
         
         if result.get("ok"):
-            print("✅ Telegram отправлен!")
+            print("✅ Telegram отправлен!", flush=True)
             return True
 
-        print("❌ Telegram error:", result.get("description", "Неизвестная ошибка"))
+        print("❌ Telegram error:", result.get("description", "Неизвестная ошибка"), flush=True)
         return False
 
     except Exception as e:
-        print("❌ Ошибка сети при отправке в Telegram:", e)
+        print("❌ Ошибка сети при отправке в Telegram:", e, flush=True)
         return False
 
 
@@ -96,7 +93,6 @@ def send(msg):
 # =====================================
 
 chrome_path = os.getenv("CHROME_PATH")
-driver_path = os.getenv("CHROMEDRIVER_PATH")
 
 options = webdriver.ChromeOptions()
 
@@ -117,13 +113,11 @@ options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
 
-if driver_path:
-    service = Service(executable_path=driver_path)
-else:
-    service = Service()
-
-driver = webdriver.Chrome(service=service, options=options)
+print("⏳ Инициализация браузера...", flush=True)
+# Создаем Service() без аргументов. Selenium Manager сам найдет нужный драйвер.
+driver = webdriver.Chrome(service=Service(), options=options)
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+print("✅ Браузер успешно инициализирован.", flush=True)
 
 
 # =====================================
@@ -178,7 +172,7 @@ def save_rows(rows):
 # =====================================
 
 def load_all_matches():
-    print("\n🔄 ЗАГРУЗКА ВСЕХ МАТЧЕЙ (Ищем кнопки Show More)")
+    print("\n🔄 ЗАГРУЗКА ВСЕХ МАТЧЕЙ (Ищем кнопки Show More)", flush=True)
     
     WebDriverWait(driver, 20).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr.drops-table__row"))
@@ -190,7 +184,7 @@ def load_all_matches():
     while no_change_count < 6:
         save_rows(get_visible_rows())
         current_count = len(all_matches)
-        print(f"📊 Текущее количество матчей: {current_count}")
+        print(f"📊 Текущее количество матчей: {current_count}", flush=True)
 
         if current_count == previous_count:
             no_change_count += 1
@@ -202,16 +196,16 @@ def load_all_matches():
         visible_buttons = [b for b in buttons if b.is_displayed() and b.is_enabled()]
 
         if visible_buttons:
-            print(f"🖱 Найдено кнопок 'Show More': {len(visible_buttons)}. Нажимаем...")
+            print(f"🖱 Найдено кнопок 'Show More': {len(visible_buttons)}. Нажимаем...", flush=True)
             for btn in visible_buttons:
                 try:
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
                     time.sleep(0.5)
                     driver.execute_script("arguments[0].click();", btn)
-                    print("✅ Нажата кнопка Show More")
+                    print("✅ Нажата кнопка Show More", flush=True)
                     time.sleep(2)
                 except Exception as e:
-                    print(f"⚠️ Ошибка при клике на кнопку: {e}")
+                    print(f"⚠️ Ошибка при клике на кнопку: {e}", flush=True)
         else:
             try:
                 rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr.drops-table__row")
@@ -223,7 +217,7 @@ def load_all_matches():
                 pass
             time.sleep(3)
 
-    print(f"✅ Загрузка завершена. Итоговое количество матчей: {len(all_matches)}")
+    print(f"✅ Загрузка завершена. Итоговое количество матчей: {len(all_matches)}", flush=True)
 
 
 # =====================================
@@ -245,7 +239,7 @@ def parse_total(value):
 
 def process_matches():
     signals = 0
-    print(f"\n🔍 НАЧАЛО ПРОВЕРКИ СИГНАЛОВ (Порог: {THRESHOLD})")
+    print(f"\n🔍 НАЧАЛО ПРОВЕРКИ СИГНАЛОВ (Порог: {THRESHOLD})", flush=True)
 
     for row in list(all_matches.values()):
         try:
@@ -281,10 +275,10 @@ def process_matches():
                 signals += 1
 
         except Exception as e:
-            print("ROW ERROR:", e)
+            print("ROW ERROR:", e, flush=True)
 
     save_sent_keys(sent)
-    print(f"🔔 ИТОГО Новых сигналов отправлено: {signals}")
+    print(f"🔔 ИТОГО Новых сигналов отправлено: {signals}", flush=True)
 
 
 # =====================================
@@ -292,53 +286,53 @@ def process_matches():
 # =====================================
 
 try:
-    print("🚀 ЗАПУСК СКАНЕРА (HEADLESS РЕЖИМ)...")
+    print("🚀 ЗАПУСК СКАНЕРА (HEADLESS РЕЖИМ)...", flush=True)
     
-    print("📨 Отправка тестового сообщения в Telegram...")
+    print("📨 Отправка тестового сообщения в Telegram...", flush=True)
     send("🤖 Сканер запущен. Тест связи пройден.")
     
-    print("🌐 Opening site...")
+    print("🌐 Opening site...", flush=True)
     driver.get(URL)
     
-    print("🍪 Проверка баннера с куки...")
+    print("🍪 Проверка баннера с куки...", flush=True)
     time.sleep(3)
     try:
         buttons = driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'принять') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'соглас')]")
         if buttons:
             driver.execute_script("arguments[0].click();", buttons[0])
-            print("✅ Баннер куки закрыт.")
+            print("✅ Баннер куки закрыт.", flush=True)
             time.sleep(2)
     except Exception:
         pass
 
-    print("⏳ Ожидание появления таблицы (до 60 секунд)...")
+    print("⏳ Ожидание появления таблицы (до 60 секунд)...", flush=True)
     WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
     )
 
-    print("✅ Таблица найдена")
+    print("✅ Таблица найдена", flush=True)
 
     load_all_matches()
 
     if SINGLE_RUN:
-        print(f"📊 Всего матчей собрано: {len(all_matches)}")
+        print(f"📊 Всего матчей собрано: {len(all_matches)}", flush=True)
         process_matches()
-        print("✅ Одиночный облачный проход успешно завершен!")
+        print("✅ Одиночный облачный проход успешно завершен!", flush=True)
     else:
         while True:
             try:
                 load_all_matches()
-                print(f"\n📊 Всего матчей в памяти: {len(all_matches)}")
+                print(f"\n📊 Всего матчей в памяти: {len(all_matches)}", flush=True)
                 process_matches()
             except Exception as e:
-                print("❌ LOOP ERROR:", e)
+                print("❌ LOOP ERROR:", e, flush=True)
             time.sleep(CHECK_INTERVAL)
 
 except KeyboardInterrupt:
-    print("\n🛑 Сканер остановлен")
+    print("\n🛑 Сканер остановлен", flush=True)
 
 except Exception as e:
-    print("❌ CRITICAL ERROR:", repr(e))
+    print("❌ CRITICAL ERROR:", repr(e), flush=True)
     traceback.print_exc()
     
 finally:
