@@ -20,17 +20,15 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: 🌐 Установка Google Chrome и ChromeDriver
+      - name: 🌐 Установка Google Chrome
         uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: 'stable'
-          install-chromedriver: true
         id: setup-chrome
 
-      - name: 📤 Экспорт путей Chrome и ChromeDriver
+      - name: 📤 Экспорт пути к Chrome
         run: |
           echo "CHROME_PATH=${{ steps.setup-chrome.outputs.chrome-path }}" >> $GITHUB_ENV
-          echo "CHROMEDRIVER_PATH=${{ steps.setup-chrome.outputs.chromedriver-path }}" >> $GITHUB_ENV
 
       - name: 💾 Восстановление и сохранение истории сигналов
         uses: actions/cache@v5
@@ -50,14 +48,5 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SINGLE_RUN: "true"
+          PYTHONUNBUFFERED: "1" # ВАЖНО: Отключает задержку вывода логов в консоль
         run: python scraper.py
-
-      - name: 📸 Сохранение скриншота и HTML при ошибке
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: error-diagnostics
-          path: |
-            error_screenshot.png
-            error_page.html
-          retention-days: 2
