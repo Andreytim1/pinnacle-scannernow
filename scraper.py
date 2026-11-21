@@ -15,14 +15,14 @@ from selenium.webdriver.support import expected_conditions as EC
 # НАСТРОЙКИ
 # =====================================
 
-# ВСТАВЬТЕ СЮДА ВАШИ ДАННЫЕ, ЕСЛИ НЕ ИСПОЛЬЗУЕТЕ СЕКРЕТЫ GITHUB
-TOKEN = os.getenv("TELEGRAM_TOKEN", "6116556985:AAHme10EwOumFSKDkGFzq2WIk-86iNX4BIQ")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "507290424")
+# Берем токен и ID строго из секретов GitHub. 
+# Если их нет - выдаст ошибку, но не будет спамить не туда.
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 URL = "https://scanbet.io/pinnacle/drops/football"
 
-# ВНИМАНИЕ! Если тут стоит 1.25, бот не будет отправлять изменения на 0.25 или 0.5!
-# Поставьте 0.25, чтобы ловить ВСЕ сигналы.
+# Порог изменения тотала (0.25 ловит изменения в четверть очка)
 THRESHOLD = 0.25 
 CHECK_INTERVAL = 600
 
@@ -57,13 +57,17 @@ all_matches = {}
 
 
 # =====================================
-# TELEGRAM (С ПОДРОБНЫМ ЛОГИРОВАНИЕМ)
+# TELEGRAM
 # =====================================
 
 session = requests.Session()
 
 
 def send(msg):
+    if not TOKEN or not CHAT_ID:
+        print("❌ ОШИБКА: TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы в секретах GitHub!")
+        return False
+        
     try:
         response = session.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
@@ -75,9 +79,6 @@ def send(msg):
         )
         result = response.json()
         
-        # Выводим полный ответ от Telegram в логи
-        print(f"📡 Ответ Telegram: {result}")
-
         if result.get("ok"):
             print("✅ Telegram отправлен!")
             return True
@@ -239,7 +240,7 @@ def parse_total(value):
 
 
 # =====================================
-# ОБРАБОТКА СИГНАЛОВ (С ЛОГИРОВАНИЕМ)
+# ОБРАБОТКА СИГНАЛОВ
 # =====================================
 
 def process_matches():
@@ -255,12 +256,6 @@ def process_matches():
             old_t, new_t = parsed
             diff = round(abs(old_t - new_t), 2)
 
-            # Если изменение больше нуля, показываем это в логах
-            if diff > 0:
-                event_lines = [x.strip() for x in row["event"].splitlines() if x.strip()]
-                match_name = event_lines[0] if event_lines else "Unknown"
-                print(f"   ⚖️ {match_name}: {old_t} -> {new_t} (Разница: {diff})")
-
             if diff < THRESHOLD:
                 continue
 
@@ -270,7 +265,6 @@ def process_matches():
 
             key = f"{row['time']}|{match}|{old_t}|{new_t}"
             if key in sent:
-                print(f"   ⏭️ Пропуск (уже отправляли ранее): {match}")
                 continue
 
             msg = (
@@ -281,8 +275,6 @@ def process_matches():
                 f"📊 T: {old_t} → {new_t}\n"
                 f"📈 Move: {diff}"
             )
-
-            print(f"🎯 ПОПЫТКА ОТПРАВКИ: {match}: {old_t} → {new_t} ({diff})")
 
             if send(msg):
                 sent.add(key)
@@ -302,10 +294,8 @@ def process_matches():
 try:
     print("🚀 ЗАПУСК СКАНЕРА (HEADLESS РЕЖИМ)...")
     
-    # Тест связи с Telegram
     print("📨 Отправка тестового сообщения в Telegram...")
-    if not send("🤖 Сканер запущен. Тест связи пройден."):
-        print("⚠️ ВНИМАНИЕ: Telegram не принял тестовое сообщение! Проверьте токен и CHAT_ID.")
+    send("🤖 Сканер запущен. Тест связи пройден.")
     
     print("🌐 Opening site...")
     driver.get(URL)
@@ -351,14 +341,6 @@ except Exception as e:
     print("❌ CRITICAL ERROR:", repr(e))
     traceback.print_exc()
     
-    print("\n📸 СОХРАНЕНИЕ ДИАГНОСТИКИ...")
-    try:
-        driver.save_screenshot("error_screenshot.png")
-        with open("error_page.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
-    except Exception:
-        pass
-
 finally:
     driver.quit()
     session.close()
