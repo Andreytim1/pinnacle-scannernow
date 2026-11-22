@@ -21,9 +21,9 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 URL = "https://scanbet.io/pinnacle/drops/football"
 
 THRESHOLD = 1.25 
-CHECK_INTERVAL = 600
+CHECK_INTERVAL = 600 # 10 минут в секундах
 
-SINGLE_RUN = os.getenv("SINGLE_RUN", "true").lower() == "true"
+SINGLE_RUN = os.getenv("SINGLE_RUN", "false").lower() == "true"
 SENT_FILE = "sent_keys.json"
 
 
@@ -62,7 +62,7 @@ session = requests.Session()
 
 def send(msg):
     if not TOKEN or not CHAT_ID:
-        print("❌ ОШИБКА: TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы в секретах GitHub!", flush=True)
+        print("❌ ОШИБКА: TELEGRAM_TOKEN или TELEGRAM_CHAT_ID не заданы!", flush=True)
         return False
         
     try:
@@ -114,7 +114,6 @@ options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
 
 print("⏳ Инициализация браузера...", flush=True)
-# Создаем Service() без аргументов. Selenium Manager сам найдет нужный драйвер.
 driver = webdriver.Chrome(service=Service(), options=options)
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 print("✅ Браузер успешно инициализирован.", flush=True)
@@ -172,7 +171,7 @@ def save_rows(rows):
 # =====================================
 
 def load_all_matches():
-    print("\n🔄 ЗАГРУЗКА ВСЕХ МАТЧЕЙ (Ищем кнопки Show More)", flush=True)
+    print("\n🔄 ЗАГРУЗКА ВСЕХ МАТЧЕЙ...", flush=True)
     
     WebDriverWait(driver, 20).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr.drops-table__row"))
@@ -196,28 +195,25 @@ def load_all_matches():
         visible_buttons = [b for b in buttons if b.is_displayed() and b.is_enabled()]
 
         if visible_buttons:
-            print(f"🖱 Найдено кнопок 'Show More': {len(visible_buttons)}. Нажимаем...", flush=True)
+            print(f"🖱 Нажимаем 'Show More'...", flush=True)
             for btn in visible_buttons:
                 try:
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
                     time.sleep(0.5)
                     driver.execute_script("arguments[0].click();", btn)
-                    print("✅ Нажата кнопка Show More", flush=True)
                     time.sleep(2)
-                except Exception as e:
-                    print(f"⚠️ Ошибка при клике на кнопку: {e}", flush=True)
+                except Exception:
+                    pass
         else:
             try:
                 rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr.drops-table__row")
                 if rows:
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", rows[-1])
-                else:
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             except:
                 pass
             time.sleep(3)
 
-    print(f"✅ Загрузка завершена. Итоговое количество матчей: {len(all_matches)}", flush=True)
+    print(f"✅ Загрузка завершена. Итого: {len(all_matches)} матчей.", flush=True)
 
 
 # =====================================
@@ -239,7 +235,7 @@ def parse_total(value):
 
 def process_matches():
     signals = 0
-    print(f"\n🔍 НАЧАЛО ПРОВЕРКИ СИГНАЛОВ (Порог: {THRESHOLD})", flush=True)
+    print(f"\n🔍 ПРОВЕРКА СИГНАЛОВ (Порог: {THRESHOLD})", flush=True)
 
     for row in list(all_matches.values()):
         try:
@@ -288,53 +284,57 @@ def process_matches():
 try:
     print("🚀 ЗАПУСК СКАНЕРА (HEADLESS РЕЖИМ)...", flush=True)
     
-    print("📨 Отправка тестового сообщения в Telegram...", flush=True)
-    send("🤖 Сканер запущен. Тест связи пройден.")
-    
-    print("🌐 Opening site...", flush=True)
-    driver.get(URL)
-    
-    print("🍪 Проверка баннера с куки...", flush=True)
-    time.sleep(3)
-    try:
-        buttons = driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'принять') or contains(translate(text(), 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'), 'соглас')]")
-        if buttons:
-            driver.execute_script("arguments[0].click();", buttons[0])
-            print("✅ Баннер куки закрыт.", flush=True)
-            time.sleep(2)
-    except Exception:
-        pass
-
-    print("⏳ Ожидание появления таблицы (до 60 секунд)...", flush=True)
-    WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table"))
-    )
-
-    print("✅ Таблица найдена", flush=True)
-
-    load_all_matches()
+    # Засекаем время старта
+    start_time = time.time()
+    # Максимальное время работы: 5 часов 30 минут (в секундах)
+    MAX_RUNTIME = 5.5 * 60 * 60 
 
     if SINGLE_RUN:
-        print(f"📊 Всего матчей собрано: {len(all_matches)}", flush=True)
+        print("📨 Тест связи с Telegram...", flush=True)
+        send("🤖 Сканер запущен (одиночный проход).")
+        
+        driver.get(URL)
+        time.sleep(3)
+        WebDriverWait(driver, 60).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table")))
+        load_all_matches()
         process_matches()
-        print("✅ Одиночный облачный проход успешно завершен!", flush=True)
+        print("✅ Одиночный проход завершен!", flush=True)
     else:
-        while True:
+        print("📨 Тест связи с Telegram...", flush=True)
+        send("🤖 Сканер запущен (режим 24/7). Следующие 5.5 часов буду присылать сигналы.")
+        
+        # Бесконечный цикл, который сам себя остановит через 5.5 часов
+        while time.time() - start_time < MAX_RUNTIME:
             try:
-                load_all_matches()
-                print(f"\n📊 Всего матчей в памяти: {len(all_matches)}", flush=True)
-                process_matches()
+                all_matches.clear() # Очищаем память перед новым кругом
+                print(f"\n⏱ [Цикл] Время работы: {int((time.time() - start_time)/60)} мин.", flush=True)
+                
+                driver.get(URL) # Перезагружаем страницу
+                time.sleep(3)
+                
+                # Ждем таблицу (если не дождемся, пропустим цикл)
+                try:
+                    WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.drops-table")))
+                    load_all_matches()
+                    process_matches()
+                except Exception as e:
+                    print("⚠️ Не удалось загрузить таблицу на этом круге:", e, flush=True)
+                
+                print(f"⏳ Сплю 10 минут до следующей проверки...", flush=True)
+                time.sleep(CHECK_INTERVAL)
+                
             except Exception as e:
                 print("❌ LOOP ERROR:", e, flush=True)
-            time.sleep(CHECK_INTERVAL)
+                time.sleep(60) # Если ошибка, ждем минуту и пробуем снова
+
+        print("🛑 5.5 часов прошло. Завершаем работу, чтобы GitHub не убил процесс.", flush=True)
+        send("🤖 Смена завершена (прошло 5.5 часов). Жду следующего запуска от GitHub.")
 
 except KeyboardInterrupt:
-    print("\n🛑 Сканер остановлен", flush=True)
-
+    print("\n🛑 Сканер остановлен вручную", flush=True)
 except Exception as e:
     print("❌ CRITICAL ERROR:", repr(e), flush=True)
     traceback.print_exc()
-    
 finally:
     driver.quit()
     session.close()
